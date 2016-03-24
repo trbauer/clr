@@ -1,0 +1,33 @@
+Rename to:
+  - clscript foo.cls
+
+=> split parser to abstract and OCL parser
+   parse string argument spec
+=> juicy pixels
+
+Example:
+bimg@buf("img.png"):rw 
+bmp("foo.bmp",16):rw -- pads the image out
+dir/file.cl`kernel<4096x4096>(out@0:w);
+clFinish();
+buf.write("foo.buf");
+
+FEATURES:
+- perf single run, report metric X
+  metrics:
+    => wall time (use native-time) -pW
+    => OCL prof time -pCL
+    => MDAPI counters (if Intel) -pM (pull through event)
+
+- compare metrix X with same code
+  => across devices -d={NVDA,INTC,AMD}
+  => with different build options (e.g. use #define for tile size)
+  => different code (two scripts)
+ 
+
+--------------------------------------------------
+OTHER IDEAS:
+- use EnumDisplay* to extract device codes for
+- infer bandwidth
+
+
