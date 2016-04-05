@@ -1,5 +1,7 @@
 module Types where
 
+import Data.Int
+
 fmtKern :: Kern -> String
 fmtKern k =
   "Kern {\n" ++
@@ -99,3 +101,80 @@ noPos :: Pos
 noPos = newPos 0 0
 
 
+-- bimg@buf("img.png"):rw
+-- bmp("foo.bmp",16):rw -- pads the image out
+-- dir/file.cl`kernel<4096x4096>(out@0:w);
+-- clFinish();
+-- buf.write("foo.buf");
+--
+-- foo<1920x1080,16x16>(0:w,0:r,{1,2,3,4}:rw,
+data CLS =
+  CLS {
+    clsStatements :: ![CLSSt]
+  } deriving Show
+
+data CLSSt =
+    CLSStCall !Pos !CLSCall ![(String,Arg)] -- foo<1024>(buf,s) where buf = 0:w, s={1,2,3,4}
+  | CLSStLet  !Pos          ![(String,Arg)] -- let b1=0:w, b2=1:r
+  deriving Show
+
+-- dir/file.cl`kernel[opts]<4096x4096>(out@0:w);
+data CLSCall =
+  CLSCall {
+    clscPos :: !Pos
+  , clscPath :: !(Maybe FilePath) -- dir/file.cl`
+  , clscKernel :: !String -- kernel
+  , clscBuildOpts :: !String -- [-DT=int]
+  , clscGlobal :: !NDRange -- <4096x4096>
+  , clscLocal :: !NDRange -- <...,16x16>
+  , clscArgs :: ![Arg] -- (..., ..., ...)
+  } deriving Show
+
+data NDRange =
+    NDRNull
+  | NDR1D !Int -- e.g. 1024m
+  | NDR2D !Int !Int  -- e.g. 4096x4096
+  | NDR3D !Int !Int !Int -- e.g. 16x256x256
+  deriving (Show,Eq)
+
+data Arg =
+    ArgInt !Pos !Int64 -- "0" part of "0:w"
+  | ArgFlt !Pos !Double -- "3.14" part of "3.14:rw"
+  | ArgRec !Pos ![Arg] -- {3,4,2,1}:w
+  | ArgBuf !Pos !Arg !(Maybe SizeExpr) !BufAcc !BufTrans -- 0:[4*nd.x*nd.y]rw
+-- ArgBufFile !Pos (Ptr ())
+--  | ArgFile !Pos !FilePath -- img("foo.bmp",RGBA,16):rw ... .buf("foo.dat",16)
+  | ArgRef !Pos !String -- "a"
+  | ArgSeq !Pos [Arg] -- seq(1,1)      1,2,3,4,5,...
+  | ArgCyc !Pos [Arg] -- cyc(1,2,4)
+  | ArgRand !Pos !(Maybe Arg) !(Maybe Arg) -- rand(lo,hi), rand(hi), rand
+  deriving (Show,Eq)
+
+data SizeExpr =
+-- TODO: remove these and use SizeRef?
+    SizeGlobalX !Pos | SizeGlobalY !Pos | SizeGlobalZ !Pos
+  | SizeLocalX  !Pos | SizeLocalY  !Pos | SizeLocalZ !Pos
+
+  | SizeDiv !Pos !SizeExpr !SizeExpr
+  | SizeMul !Pos !SizeExpr !SizeExpr
+  | SizeMod !Pos !SizeExpr !SizeExpr
+
+  | SizeSub !Pos !SizeExpr !SizeExpr
+  | SizeAdd !Pos !SizeExpr !SizeExpr
+--  | SizeShl !Pos !SizeExpr !SizeExpr
+--  | SizeShr !Pos !SizeExpr !SizeExpr
+  | SizeLit !Pos !Int64
+  | SizeRef !Pos !String -- foo ... where foo = 4k
+  deriving (Show,Eq)
+
+data BufAcc =
+    BufAccR -- w
+  | BufAccW -- r
+  | BufAccRW -- rw or wr
+  deriving (Show,Eq)
+
+data BufTrans =
+    BufTransC -- c (read/write (uses read/write buffer); default is mapped
+  | BufTransM -- m (mapped)
+  | BufTransS -- s (svm)
+  deriving (Show,Eq)

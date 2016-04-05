@@ -1,6 +1,12 @@
 Rename to:
   - clscript foo.cls
 
+
+
+We want cls[-DT=int]<...>(....)
+cls(img(foo.png,16)) -- infers 1 RGBA px per work item
+ if writable buffer arg is char4
+
 => split parser to abstract and OCL parser
    parse string argument spec
 => juicy pixels
