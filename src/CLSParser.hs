@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
-module CLParser(
+module CLSParser(
     module Parser
-  , pCLSCall
+  , pCLSSts
   ) where
 
 import Control.Applicative hiding ((<|>))

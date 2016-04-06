@@ -1,11 +1,12 @@
 module CLR (
-  runWithOpts
+  run
   ) where
 
 -- import qualified Language.C.Parser as LC -- language-c-quote
 
 import Types
 import Parser
+import CLSParser
 
 import Prog.Args
 
@@ -18,17 +19,29 @@ import System.Exit
 
 import qualified Data.ByteString as BS
 
-data Opts = Opts {
+data Opts =
+  Opts {
    oVerbosity :: !Int
- , oPath :: !FilePath
- } deriving (Show)
-
+-- , oPath :: !FilePath
+  , oIterations :: !Int
+  , oExprs :: ![String]
+  , oProfilers :: ![Profiler]
+  } deriving (Show)
 
 dftOpts :: Opts
-dftOpts = Opts {
+dftOpts =
+  Opts {
     oVerbosity = 0
-  , oPath = ""
+--  , oPath = ""
+  , oIterations = 1
+  , oExprs = []
+  , oProfilers = []
   }
+
+data Profiler =
+    ProfilerCL
+  deriving (Show,Eq)
+
 
 run :: [String] -> IO ()
 run as = parseArgs spec dftOpts as >>= runWithOpts
@@ -37,33 +50,59 @@ run as = parseArgs spec dftOpts as >>= runWithOpts
 spec :: Spec Opts
 spec = s
   where s = mkSpecsWithHelpOpt "clr" "" 80 [
-              flag s "q" "quiet"
+              optF s "q" "quiet"
                 "quiet output" ""
                 (\o -> (o {oVerbosity = -1}))
-            , flag s "v" "verbose"
+            , optF s "v" "verbose"
                 "verbose output" ""
                 (\o -> (o {oVerbosity = 1}))
-            , flag s "v2" "debug"
+            , optF s "v2" "debug"
                 "debug output" ""
                 (\o -> (o {oVerbosity = 2}))
+
+            , opt s "i" "iterations" "INT"
+                "number of iterations to test" ""
+                (\i o -> (o {oIterations = i})) # OptAttrAllowUnset
+
+            , optG s "p" "profile options" "" [
+                optF s "CL" "" "use OpenCL profiler" "Uses OpenCL event profiling"
+                (\o -> (o {oProfilers = oProfilers o ++ [ProfilerCL]})) # OptAttrAllowMultiple
+              ]
             ]
             [
-              arg s "ARG1" "the arg" "long arg desc" (\a o -> o{oPath = a})
+              arg s "FILE" "expr" "a clr script" (\a o -> o{oExprs = oExprs o ++ [a]}) # OptAttrAllowMultiple
             ]
 
 
 runWithOpts :: Opts -> IO ()
-runWithOpts os = do
-  inp <- readFile (oPath os)
-  length inp `seq` return ()
-  case parse (pFindKernels []) (oPath os) inp of
-    Left err -> do
-      hPutStrLn stderr (fmtDiagWithLines (lines inp) err)
-      exitFailure
-    Right (ks,ws) -> do
-      mapM_ (hPutStrLn stderr . ("WARNING: "++) . fmtDiagWithLines (lines inp)) ws
-      mapM_ (putStrLn . fmtKern) ks
-      -- print a
+runWithOpts os = body
+  where body = do
+          mapM processExpr (oExprs os)
+          return ()
+
+
+        processExpr :: String -> IO ()
+        processExpr inp =
+          case parse pCLSSts "<expr>" inp of
+            Left err -> do
+              hPutStrLn stderr (fmtDiagWithLines (lines inp) err)
+              exitFailure
+            Right (cls,ws) -> do
+              mapM_ (hPutStrLn stderr . ("WARNING: "++) . fmtDiagWithLines (lines inp)) ws
+              mapM_ print cls
+
+
+
+--  inp <- readFile (oPath os)
+--  length inp `seq` return ()
+--  case parse (pFindKernels []) (oPath os) inp of
+--    Left err -> do
+--      hPutStrLn stderr (fmtDiagWithLines (lines inp) err)
+--      exitFailure
+--    Right (ks,ws) -> do
+--      mapM_ (hPutStrLn stderr . ("WARNING: "++) . fmtDiagWithLines (lines inp)) ws
+--      mapM_ (putStrLn . fmtKern) ks
+--      -- print a
 
 {-
 do

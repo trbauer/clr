@@ -25,7 +25,6 @@ module Parser(
   , pWhiteSpace
   , slashStarComment
   , eolComment
-
   ) where
 
 import Types

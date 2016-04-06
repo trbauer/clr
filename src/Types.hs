@@ -132,14 +132,14 @@ data CLSCall =
 
 data NDRange =
     NDRNull
-  | NDR1D !Int -- e.g. 1024m
+  | NDR1D !Int -- e.g. 1024 or 4k
   | NDR2D !Int !Int  -- e.g. 4096x4096
-  | NDR3D !Int !Int !Int -- e.g. 16x256x256
+  | NDR3D !Int !Int !Int -- e.g. 256x256x3
   deriving (Show,Eq)
 
 data Arg =
-    ArgInt !Pos !Int64 -- "0" part of "0:w"
-  | ArgFlt !Pos !Double -- "3.14" part of "3.14:rw"
+    ArgInt !Pos !Int64 -- e.g. "0" or "0x1234"
+  | ArgFlt !Pos !Double -- "3.14" or "3e-9"
   | ArgRec !Pos ![Arg] -- {3,4,2,1}:w
   | ArgBuf !Pos !Arg !(Maybe SizeExpr) !BufAcc !BufTrans -- 0:[4*nd.x*nd.y]rw
 -- ArgBufFile !Pos (Ptr ())
