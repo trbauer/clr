@@ -178,3 +178,8 @@ data BufTrans =
   | BufTransM -- m (mapped)
   | BufTransS -- s (svm)
   deriving (Show,Eq)
+
+
+
+-- data Script =
+--  deriving (Show,Eq)

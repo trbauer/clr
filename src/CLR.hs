@@ -80,7 +80,6 @@ runWithOpts os = body
           mapM processExpr (oExprs os)
           return ()
 
-
         processExpr :: String -> IO ()
         processExpr inp =
           case parse pCLSSts "<expr>" inp of
@@ -89,9 +88,19 @@ runWithOpts os = body
               exitFailure
             Right (cls,ws) -> do
               mapM_ (hPutStrLn stderr . ("WARNING: "++) . fmtDiagWithLines (lines inp)) ws
+              -- compile cls
+              --   * load all kernels and compile
+              --   * load all buffer parameters
+              --  [can I use dependent types?]
+              --  buffers have implicit types (buf(foo.png)
+              --  Need a "compiled IR"?
+              -- could I just have compile return an (IO ())
+              --  data CCLSSt =
+              --    CCLSStCall
+              --    CCLSStFinish
               mapM_ print cls
 
-
+test = run["blend.cl`blend<1024x1024>(0:w,0:r,0:r)"]
 
 --  inp <- readFile (oPath os)
 --  length inp `seq` return ()
