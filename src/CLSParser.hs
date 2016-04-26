@@ -29,10 +29,10 @@ pCLSSt = pLetSt <|> pCallSt
 
         pCallSt = withPos $ \p -> do
           c <- pCLSCall
-          bs <- P.option [] $ pKeyword "where" >> pBindings
-          return $! CLSStCall p c bs
+          -- bs <- P.option [] $ pKeyword "where" >> pBindings
+          return $! CLSStCall p c -- bs
 
-        pBindings :: P [(String,Arg)]
+        pBindings :: P [(String,Init)]
         pBindings = P.sepBy1 (P.try pBinding) (pSymbol ",")
           where pBinding = do
                   nm <- pIdentifier
@@ -43,7 +43,7 @@ pCLSSt = pLetSt <|> pCallSt
 
 pCLSCall :: P CLSCall
 pCLSCall = withPos $ \p -> do
-  mpfx <- P.optionMaybe (P.try pFilePathPrefix)
+  pfx <- P.option "" (P.try pFilePathPrefix)
   knm <- pIdentifier
   bopts <- P.option "" (P.try pBuildOptions)
   (glb,loc) <- pRange
@@ -53,7 +53,7 @@ pCLSCall = withPos $ \p -> do
   return $!
     CLSCall {
       clscPos = p
-    , clscPath = mpfx
+    , clscPath = pfx
     , clscKernel = knm
     , clscBuildOpts = bopts
     , clscGlobal = glb
@@ -130,7 +130,7 @@ pNDRange = p1D
 -- 15
 -- 0x123
 -- {1,2,3,4}
-pKernelArg :: P Arg
+pKernelArg :: P Init
 pKernelArg = body
   where body = withPos $ \p ->do
           a <- pScaArg
@@ -140,11 +140,11 @@ pKernelArg = body
             let pFinishBuf1 = do
                    acc <- pBufAcc
                    bt <- pBufTrans
-                   return $! ArgBuf p a msz acc bt
+                   return $! InitBuf p a msz acc bt
                 pFinishBuf2 = do
                    acc <- pBufAcc
                    bt <- pBufTrans
-                   return $! ArgBuf p a msz acc bt
+                   return $! InitBuf p a msz acc bt
             P.try pFinishBuf1 <|> pFinishBuf2
 
         pSizeExpr :: P SizeExpr
@@ -226,21 +226,21 @@ pScaled par = do
       pB = P.oneOf "bB" >> return (1000*1000*1000*z)
   P.option z (pK <|> pM <|> pB)
 
-pScaArg :: P Arg
+pScaArg :: P Init
 pScaArg = pRecord <|> P.try pFloating <|> pIntegral <|> pReference
   where pRecord = withPos $ \p -> do
           pSymbol "{"
           as <- P.sepBy1 pScaArg (pSymbol ",")
           pSymbol "}"
-          return $ ArgRec p as
+          return $ InitRec p as
 
         pIntegral = withPos $ \p -> do
           f <- P.option id (pSymbol "-" >> return negate)
-          (ArgInt p . f) <$> pScaled pInt64
+          (InitInt p . f) <$> pScaled pInt64
 
         pFloating = withPos $ \p -> do
           f <- P.option id (pSymbol "-" >> return negate)
-          (ArgFlt p . f) <$> pScaled pDouble
+          (InitFlt p . f) <$> pScaled pDouble
 
         pReference = withPos $ \p -> do
-          ArgRef p <$> pIdentifier
+          InitRef p <$> pIdentifier

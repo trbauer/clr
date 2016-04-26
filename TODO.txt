@@ -1,6 +1,3 @@
-Rename to:
-  - clscript foo.cls
-
 
 
 We want cls[-DT=int]<...>(....)

@@ -1,6 +1,6 @@
 module Parser(
     P
-  , USt, dftUSt
+  , USt(..), dftUSt
   , parse
   , withPos
   , spToPos

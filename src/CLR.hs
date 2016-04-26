@@ -7,6 +7,7 @@ module CLR (
 import Types
 import Parser
 import CLSParser
+import qualified Interpret as I
 
 import Prog.Args
 
@@ -98,9 +99,16 @@ runWithOpts os = body
               --  data CCLSSt =
               --    CCLSStCall
               --    CCLSStFinish
-              mapM_ print cls
+              I.run inp cls
 
-test = run["blend.cl`blend<1024x1024>(0:w,0:r,0:r)"]
+test = run ["blend.cl`blend4<1024x1024>(0:w,0:r,0:r)"]
+-- let b_start = imgbuf(\"start.png\",32):r
+-- let b_end = imgbuf(\"end.png\",32):r
+-- let b = imgbuf(b_start.size())
+-- test = run["blend.cl`blend<auto>(0:w,b_start,b_end,0.1)"]
+-- inference
+
+
 
 --  inp <- readFile (oPath os)
 --  length inp `seq` return ()

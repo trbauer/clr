@@ -5,7 +5,7 @@ module CLParser(
   ) where
 
 import Types
-import BaseParser
+import Parser
 
 import Control.Applicative hiding ((<|>))
 import Control.Monad

@@ -2,6 +2,7 @@ module Types where
 
 import Data.Int
 
+
 fmtKern :: Kern -> String
 fmtKern k =
   "Kern {\n" ++
@@ -10,9 +11,9 @@ fmtKern k =
   concatMap (("  "++) . (++"\n") . show) (kParams k) ++
   "  ]" ++
   ", kAttrs = " ++ show (kAttrs k) ++ "\n" ++
-  ", kBody = (\n" ++
-  show (kBody k) ++ "\n" ++
-  ")\n" ++
+  ", kBody = <<\n" ++
+  kBody k ++ "\n" ++
+  ">>\n" ++
   "}"
 
 data Kern =
@@ -50,7 +51,7 @@ data Type =
     }
   | VoidType -- void
   | BoolType -- bool
-  | PointerType !Type -- T *
+  | PointerType !Type -- T*
   | ImageType1DType -- image1d_t
   | ImageType2DType -- image2d_t
   | ImageType3DType -- image3d_t
@@ -114,20 +115,22 @@ data CLS =
   } deriving Show
 
 data CLSSt =
-    CLSStCall !Pos !CLSCall ![(String,Arg)] -- foo<1024>(buf,s) where buf = 0:w, s={1,2,3,4}
-  | CLSStLet  !Pos          ![(String,Arg)] -- let b1=0:w, b2=1:r
+    CLSStCall !Pos !CLSCall -- ![(String,Arg)] -- foo<1024>(buf,s) where buf = 0:w, s={1,2,3,4}
+  | CLSStLet  !Pos ![(String,Init)] -- let b1=0:w, b2=1:r
+  | CLSStProg !Pos String !FilePath !String -- let prog = foo/bar.cl[...]
+  -- | CLStProg !Pos String !FilePath !String -- prog`k1(...)
   deriving Show
 
 -- dir/file.cl`kernel[opts]<4096x4096>(out@0:w);
 data CLSCall =
   CLSCall {
     clscPos :: !Pos
-  , clscPath :: !(Maybe FilePath) -- dir/file.cl`
+  , clscPath :: !FilePath -- dir/file.cl`
   , clscKernel :: !String -- kernel
   , clscBuildOpts :: !String -- [-DT=int]
   , clscGlobal :: !NDRange -- <4096x4096>
   , clscLocal :: !NDRange -- <...,16x16>
-  , clscArgs :: ![Arg] -- (..., ..., ...)
+  , clscArgs :: ![Init] -- (..., ..., ...)
   } deriving Show
 
 data NDRange =
@@ -137,17 +140,17 @@ data NDRange =
   | NDR3D !Int !Int !Int -- e.g. 256x256x3
   deriving (Show,Eq)
 
-data Arg =
-    ArgInt !Pos !Int64 -- e.g. "0" or "0x1234"
-  | ArgFlt !Pos !Double -- "3.14" or "3e-9"
-  | ArgRec !Pos ![Arg] -- {3,4,2,1}:w
-  | ArgBuf !Pos !Arg !(Maybe SizeExpr) !BufAcc !BufTrans -- 0:[4*nd.x*nd.y]rw
--- ArgBufFile !Pos (Ptr ())
---  | ArgFile !Pos !FilePath -- img("foo.bmp",RGBA,16):rw ... .buf("foo.dat",16)
-  | ArgRef !Pos !String -- "a"
-  | ArgSeq !Pos [Arg] -- seq(1,1)      1,2,3,4,5,...
-  | ArgCyc !Pos [Arg] -- cyc(1,2,4)
-  | ArgRand !Pos !(Maybe Arg) !(Maybe Arg) -- rand(lo,hi), rand(hi), rand
+data Init =
+    InitInt !Pos !Int64 -- e.g. "0" or "0x1234"
+  | InitFlt !Pos !Double -- "3.14" or "3e-9"
+  | InitRec !Pos ![Init] -- {3,4,2,1}
+  | InitBuf !Pos !Init !(Maybe SizeExpr) !BufAcc !BufTrans -- 0:[4*nd.x*nd.y]rw
+-- | InitBufFile !Pos (Ptr ())
+-- | InitFile !Pos !FilePath -- img("foo.bmp",RGBA,16):rw ... .buf("foo.dat",16)
+  | InitRef !Pos !String -- "a"
+  | InitSeq !Pos [Init] -- seq(1,1)      1,2,3,4,5,...
+  | InitCyc !Pos [Init] -- cyc(1,2,4)
+  | InitRand !Pos !(Maybe Init) !(Maybe Init) -- rand(lo,hi), rand(hi), rand
   deriving (Show,Eq)
 
 data SizeExpr =
@@ -174,12 +177,11 @@ data BufAcc =
   deriving (Show,Eq)
 
 data BufTrans =
-    BufTransC -- c (read/write (uses read/write buffer); default is mapped
+    BufTransC -- c (read/write (uses read/write buffer); default is mapped)
   | BufTransM -- m (mapped)
   | BufTransS -- s (svm)
   deriving (Show,Eq)
 
 
 
--- data Script =
---  deriving (Show,Eq)
+
