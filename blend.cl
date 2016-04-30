@@ -1,8 +1,9 @@
 
 kernel void blend4(
-    global uchar4 *dst,
-    global uchar4 *src1,
-    global uchar4 *src2,
+    int x,
+    global float *dst,
+    global float *src1,
+    global float *src2,
     float t)
 {
     int id = get_global_id(1)*get_global_size(0) + get_global_id(0);

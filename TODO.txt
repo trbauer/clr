@@ -22,7 +22,7 @@ FEATURES:
     => OCL prof time -pCL
     => MDAPI counters (if Intel) -pM (pull through event)
 
-- compare metrix X with same code
+- compare metrics X with same code
   => across devices -d={NVDA,INTC,AMD}
   => with different build options (e.g. use #define for tile size)
   => different code (two scripts)

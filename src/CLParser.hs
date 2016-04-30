@@ -143,7 +143,7 @@ pType = body
         pBoolType = pKeyword "bool" >> return BoolType
         pVectorOrScalarType = do
           t <- pVectBaseType
-          v <- P.option 0 (P.try (pOneOf "" [("2",2),("3",3),("4",4),("8",8),("16",16)]))
+          v <- P.option 1 (P.try (pOneOf "" [("2",2),("3",3),("4",4),("8",8),("16",16)]))
           pWhiteSpace
           return $ t {tElems = v}
 

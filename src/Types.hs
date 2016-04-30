@@ -1,7 +1,8 @@
 module Types where
 
 import Data.Int
-
+import Foreign.Storable
+import Foreign.Ptr
 
 fmtKern :: Kern -> String
 fmtKern k =
@@ -137,7 +138,7 @@ data NDRange =
     NDRNull
   | NDR1D !Int -- e.g. 1024 or 4k
   | NDR2D !Int !Int  -- e.g. 4096x4096
-  | NDR3D !Int !Int !Int -- e.g. 256x256x3
+  | NDR3D !Int !Int !Int -- e.g. 256x256x4
   deriving (Show,Eq)
 
 data Init =
@@ -149,7 +150,7 @@ data Init =
 -- | InitFile !Pos !FilePath -- img("foo.bmp",RGBA,16):rw ... .buf("foo.dat",16)
   | InitRef !Pos !String -- "a"
   | InitSeq !Pos [Init] -- seq(1,1)      1,2,3,4,5,...
-  | InitCyc !Pos [Init] -- cyc(1,2,4)
+  | InitCyc !Pos [Init] -- cyc(-1,1)
   | InitRand !Pos !(Maybe Init) !(Maybe Init) -- rand(lo,hi), rand(hi), rand
   deriving (Show,Eq)
 
@@ -182,6 +183,20 @@ data BufTrans =
   | BufTransS -- s (svm)
   deriving (Show,Eq)
 
+instance (Storable a) => Storable (Vec2 a) where
+  sizeOf = (2*) . sizeOf . v2_sX
+  alignment = alignment . v2_sX
+  peek ptrA = do
+    a1 <- peekElemOff (castPtr ptrA) 0
+    a2 <- peekElemOff (castPtr ptrA) 1
+    return $! Vec2 a1 a2
+  poke ptrA (Vec2 a1 a2) = do
+    pokeElemOff (castPtr ptrA) 0 a1
+    pokeElemOff (castPtr ptrA) 1 a2
 
-
+data Vec2 a =
+  Vec2 {
+    v2_sX :: !a,
+    v2_sY :: !a
+  } deriving (Show,Eq,Ord)
 

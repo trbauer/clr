@@ -7,9 +7,11 @@ import Types
 
 import Control.Exception
 import Control.Monad
-import Data.List
 import Data.Int
+import Data.List
 import Data.Word
+import Foreign.Ptr
+import Foreign.Storable
 import GHC.Float
 import System.FilePath
 import System.IO
@@ -27,14 +29,15 @@ data CLSInst
   | CLSISync
 
 
-run :: String -> [CLSSt] -> IO ()
-run inp css = do
+run :: Int -> String -> [CLSSt] -> IO ()
+run v inp css = do
   -- allocate a progam, command queue, and ...
   -- pre-allocate kernels
   -- run through and identify buffers
   -- collect constraints on each buffer (e.g. size)
   ctx <- findCtx
 --  pks <- preallocateKernels ctx css []
+  compileScript v inp ctx css emptyScript
 
   return ()
 
@@ -61,25 +64,40 @@ findCtx = do
 
 -- program test = foo/bar.cl[-DT=int -DS=float]
 -- test = baz.cl
-data CLRInst =
-    CLRInst !Pos !CLKernel !NDRange !NDRange [ArgVal]
-  deriving Show
-type ScalarSetter = IO ()
+-- data CLRInst =
+--     CLRInst !Pos !CLKernel !NDRange !NDRange [ArgVal]
+--   deriving Show
+-- type ScalarSetter = IO ()
+--
+-- data ArgVal =
+--     ArgValScalar !(IO ())
+--   | ArgValBuffer !CLMem
+--   | ArgValImage  !CLMem
+-- instance Show ArgVal where
+--   show (ArgValScalar _) = "ArgValScalar"
+--  show (ArgValBuffer m) = "ArgValBuffer " ++ show m
+--  show (ArgValImage m) = "ArgValImage " ++ show m
+--
 
-data ArgVal =
-    ArgValScalar !(IO ())
-  | ArgValBuffer !CLMem
-  | ArgValImage  !CLMem
-instance Show ArgVal where
-  show (ArgValScalar _) = "ArgValScalar"
-  show (ArgValBuffer m) = "ArgValBuffer " ++ show m
-  show (ArgValImage m) = "ArgValImage " ++ show m
+data Script =
+  Script {
+    -- called once before each sampling iteration
+    scItrInit :: !(CLCommandQueue -> IO ())
+    -- call
+  , scItrRun :: !(CLCommandQueue -> IO ())
+  }
+emptyScript :: Script
+emptyScript =
+  Script {
+    scItrInit = \_ -> return ()
+  , scItrRun = \_ -> return ()
+  }
 
-
-compileScript :: String -> CLContext -> [CLSSt] -> IO [CLRInst]
-compileScript _ _   []                          = return []
-compileScript inp ctx ((CLSStCall pos clsc):clsts) = body
+compileScript :: Int -> String -> CLContext -> [CLSSt] -> Script -> IO Script
+compileScript _ _ _   []                             scr = return scr
+compileScript v inp ctx ((CLSStCall pos clsc):clsts) scr0 = body
   where body = do
+          putStrLn $ show clsc
           cl_inp <- readFile (clscPath clsc)
           length cl_inp `seq` return ()
           case parse (pFindKernels []) (clscPath clsc) cl_inp of
@@ -91,6 +109,7 @@ compileScript inp ctx ((CLSStCall pos clsc):clsts) = body
               case find (\k -> kName k == clscKernel clsc) ks of
                 Nothing -> fatal ("cannot find kernel " ++ clscKernel clsc)
                 Just k -> do
+                  debugLn $ "creating kernel\n" ++ fmtKern k
                   p <- clCreateProgramWithSource ctx cl_inp
                   [d] <- clGetContextDevices ctx
                   let printLog s = do
@@ -103,30 +122,71 @@ compileScript inp ctx ((CLSStCall pos clsc):clsts) = body
                   clBuildProgram p [d] "" `catch` handler
                   printLog ">>BUILD SUCCESS"
                   krn <- clCreateKernel p (kName k)
-                  clris <- compileScript inp ctx clsts
-                  args <- compileArgs pos krn (kParams k) (clscArgs clsc)
-                  let clri =
-                        CLRInst pos krn (clscGlobal clsc) (clscLocal clsc) args
-                  return $! clri:clris
+                  scr1 <- compileArgs clsc pos krn (kParams k) (clscArgs clsc) scr0
+                  compileScript v inp ctx clsts scr1
+                  -- let clri =
+                  --      CLRInst pos krn (clscGlobal clsc) (clscLocal clsc) args
+                  -- return $! clri:clris
 
-        compileArgs :: Pos -> CLKernel -> [KParam] -> [Init] -> IO [ArgVal]
-        compileArgs pos clk kps inits =
-          mapM (\(aix,kp,init) -> compileArg pos clk aix kp init) (zip3 [1..] kps inits)
+        debugLn :: String -> IO ()
+        debugLn msg
+          | v > 1 = putStrLn msg
+          | otherwise = return ()
+        verboseLn :: String -> IO ()
+        verboseLn msg
+          | v > 0 = putStrLn msg
+          | otherwise = return ()
 
-        compileArg :: Pos -> CLKernel -> Int -> KParam -> Init -> IO ArgVal
-        compileArg pos clk aix kp = compileInit
+
+
+        compileArgs :: CLSCall -> Pos -> CLKernel -> [KParam] -> [Init] -> Script -> IO Script
+        compileArgs clsc pos clk kps inits scr0 = go 1 kps inits scr0
+          where go aix (kp:kps) (init:inits) scr0 = compileArg clsc pos clk aix kp init scr0 >>= go (aix + 1) kps inits
+                go _   []       []           scr  = return scr
+
+
+        compileArg :: CLSCall -> Pos -> CLKernel -> Int -> KParam -> Init -> Script -> IO Script
+        compileArg clsc pos clk aix kp init scr0 = body
           where argError :: String -> IO a
-                argError msg =
+                argError = argErrorAt pos
+                argErrorAt :: Pos -> String -> IO a
+                argErrorAt pos msg =
                   fatal $ fmtDiagWithLines (lines inp) (Diag pos ("ERROR: arg " ++ show aix ++ ": " ++ msg))
 
-                compileInit :: Init -> IO ArgVal
-                compileInit (InitInt _ i64)
-                  | kpQual kp == KQualPrivate = do
-                  let setScalarArg a = return . ArgValScalar $ do
-                        clSetKernelArgSto clk (fromIntegral aix) a
+                body = do
+                  debugLn $ "compiling arg " ++ show aix ++ "\n" ++
+                            show init
+                  compileInit init scr0
+
+                compileInit :: Init -> Script -> IO Script
+                compileInit (InitInt _ i64) scr0
+                  | kpQual kp /= KQualPrivate = argError "scalar inits must target private args (uniform)"
+                  | otherwise = do
+                  let setScalarArg a = do
+                        -- supports any storable value a
+                        debugLn $ "clSetKernelArgSto(" ++
+                          show clk ++ ", " ++
+                          show aix ++ ", " ++
+                          show a ++ ")"
+                        print $ sizeOf a
+                        clSetKernelArgSto clk (fromIntegral aix) a <!> "clSetKernelArgSto"
+
+                        return $ scr0 {
+                          scItrInit = \cq -> do
+                            scItrInit scr0 cq
+                            debugLn $ "clSetKernelArgSto(" ++
+                              show clk ++ ", " ++
+                              show aix ++ ", " ++
+                              show a ++ ")"
+                            clSetKernelArgSto clk (fromIntegral aix) a <!> "clSetKernelArgSto"
+                        }
                   case kpType kp of
                     PrimType TGroupSInt 1 1 ->
                       setScalarArg (fromIntegral i64 :: Int8)
+                    PrimType TGroupSInt 2 1 -> do
+                      let b = fromIntegral i64 :: Int8
+                      setScalarArg $ Vec2 b b
+
                     PrimType TGroupSInt 1 2 ->
                       setScalarArg (fromIntegral i64 :: Int16)
                     PrimType TGroupSInt 1 4 ->
@@ -151,11 +211,10 @@ compileScript inp ctx ((CLSStCall pos clsc):clsts) = body
                       setScalarArg (fromIntegral i64 :: Double)
                     _ -> argError $ "kernel formal parameter: unsupported type for integral arg " ++ show (kpType kp)
 
--- TODO: rename PrimType to FormalVal and use ActVal
--- TODO: vector init should be defined as broadcast
 --       (i.e. change the Init to explicitly be 1 -> {1,1,1,1})
-                compileInit (InitFlt _ f64)
-                  | kpQual kp == KQualPrivate = do
+                compileInit (InitFlt _ f64) scr0
+                  | kpQual kp /= KQualPrivate = argError "scalar inits must target private args (uniform)"
+                  | otherwise = do
                   case kpType kp of
                     -- PrimType TGroupFlt 1 2 -> -- TODO: need flt16 support (use half library?)
                     --  clSetKernelArgSto clk (fromIntegral aix) (fromIntegral i64 :: Word16)
@@ -165,13 +224,92 @@ compileScript inp ctx ((CLSStCall pos clsc):clsts) = body
                       setScalarArg f64
                     _ -> argError $ "kernel formal parameter: unsupported type for floating arg " ++ show (kpType kp)
 
-                  | kpQual kp == KQualGlobal || kpQual kp == KQualConstant =
+                  where setScalarArg a = do
+                          debugLn $ "clSetKernelArgSto(" ++
+                            show clk ++ ", " ++
+                            show aix ++ ", " ++
+                            show a ++ ")"
+                          return $ scr0 {
+                            scItrInit = \cq -> do
+                              scItrInit scr0 cq
+                              clSetKernelArgSto clk (fromIntegral aix) a <!> "clSetKernelArgSto"
+                          }
+                compileInit (InitBuf _ init_val msz bacc btrans) scr0
+                  -- if this fails, throw a fit
+                  | kpQual kp /= KQualGlobal && kpQual kp /= KQualConstant = argError "buffer inits require global or constant address space"
+                  | otherwise = do
                   case kpType kp of
-                    PrimType TGroupSInt 1 1 -> do -- allocate buffer with constant values
-                      error "allocate a buffer"
+                    -- TODO: generalize
+                    PointerType (PrimType ty elems_per_item bytes_per_elem) -> do
+                      nelems <-
+                        case msz of
+                          Just sx -> evalSizeExpr sx
+                          Nothing -> inferBufferSizeFromNDR (clscPos clsc) (clscGlobal clsc)
+                            -- 1 element per work item
+                      -- autosize buffer
+                      -- => so the initializer can write it
+                      -- initToStamper init_val
+                      -- let write ptr ix = pokeElemOff ptr ix (fromIntegral i64 :: Int8)
+
+                      let bytes_per_item = elems_per_item * bytes_per_elem
+                          buf_bytes = nelems * bytes_per_elem
+                          buf_bytes_str
+                            | buf_bytes `mod` (1024*1024) == 0 = show (buf_bytes`div`(1024*1024)) ++ "M"
+                            | buf_bytes `mod` 1024 == 0 = show (buf_bytes`div`1024) ++ "K"
+                            | otherwise = show buf_bytes ++ "B"
+                          mflags = [buf_acc,CL_MEM_ALLOC_HOST_PTR]
+                            where buf_acc =
+                                    case bacc of
+                                      BufAccR -> CL_MEM_READ_ONLY
+                                      BufAccW -> CL_MEM_WRITE_ONLY
+                                      BufAccRW -> CL_MEM_READ_WRITE
+                      debugLn $ "clCreateBuffer ("++show ctx++", "++
+                                  intercalate "|" (map show mflags)++", " ++
+                                  buf_bytes_str ++ ", nullptr)"
+
+                      -- create a backing buffer
+                      buf <- clCreateBuffer ctx mflags (buf_bytes,nullPtr) <!> "clCreateBuffer"
+                      debugLn $ show buf ++ " <="
+                      debugLn $ "clSetKernelArg ("++show clk++", "++show aix++", " ++ show (sizeOf buf) ++ ", " ++ show buf ++ ")"
+                      clSetKernelArg clk (fromIntegral aix) (sizeOf buf) buf <!> "clSetKernelArg"
+
+                      return $!
+                        scr0 {
+                          scItrInit = \cq -> do
+                            scItrInit scr0 cq
+                            error "IMPLEMENT ME: allocate buffer"
+                        }
                     _ -> argError $ "kernel formal parameter: unsupported type for buffer arg " ++ show (kpType kp)
-                  where setScalarArg a = return . ArgValScalar $ do
-                          clSetKernelArgSto clk (fromIntegral aix) a
+
+                inferBufferSizeFromNDR :: Pos -> NDRange -> IO Int
+                inferBufferSizeFromNDR p ndr =
+                  case ndr of
+                    NDRNull -> argErrorAt p "cannot evaluate buffer size without NDRange size"
+                    NDR1D x -> return x
+                    NDR2D x y -> return $! x*y
+                    NDR3D x y z -> return $! x*y*z
+
+                -- compileArg.evalSizeExpr
+                evalSizeExpr :: SizeExpr -> IO Int
+                evalSizeExpr (SizeGlobalX p) =
+                  case clscGlobal clsc of
+                    NDRNull -> argErrorAt p "cannot evaluate global X on null range"
+                    NDR1D x -> return x
+                    NDR2D x y -> return x
+                    NDR3D x y z -> return x
+                evalSizeExpr (SizeGlobalY p) =
+                  case clscGlobal clsc of
+                    NDRNull -> argErrorAt p "cannot evaluate global X on null range"
+                    NDR1D _ -> argErrorAt p "cannot evaluate global Y on 1D range"
+                    NDR2D _ y -> return y
+                    NDR3D _ y _ -> return y
+                evalSizeExpr (SizeGlobalZ p) =
+                  case clscGlobal clsc of
+                    NDRNull -> argErrorAt p "cannot evaluate global X on null range"
+                    NDR1D _ -> argErrorAt p "cannot evaluate global Y on 1D range"
+                    NDR2D _ _ -> argErrorAt p "cannot evaluate global Z on 2D range"
+                    NDR3D _ _ z -> return z
+
 
 {-
 preallocateKernels ::

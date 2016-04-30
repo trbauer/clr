@@ -99,9 +99,9 @@ runWithOpts os = body
               --  data CCLSSt =
               --    CCLSStCall
               --    CCLSStFinish
-              I.run inp cls
+              I.run (oVerbosity os) inp cls
 
-test = run ["blend.cl`blend4<1024x1024>(0:w,0:r,0:r)"]
+test = run ["blend.cl`blend4<1024x1024>(44,0:w,0.0:r,1.0:r,0.5)","-v2"]
 -- let b_start = imgbuf(\"start.png\",32):r
 -- let b_end = imgbuf(\"end.png\",32):r
 -- let b = imgbuf(b_start.size())
